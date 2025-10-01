@@ -1,3 +1,4 @@
-streamlit
+voila
+ipywidgets
 numpy
 matplotlib
