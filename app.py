@@ -1,26 +1,28 @@
-# -----------------------------
-# Simulación completa: Caída libre
-# Adaptado para Streamlit Cloud conservando estilo original
+# ----------------------------- 
+# Simulación completa: Caída libre (corrección para slider y fórmula)
 # -----------------------------
 
-import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import math
 
-# -------------------------
+# ------------------------------------------------
 # Constante
 g = 9.8  # m/s^2
+# ------------------------------------------------
 
 # -------------------------
-# Función para truncar a 2 decimales sin redondeo
+# Función para formatear a 2 decimales sin redondear
+# -------------------------
 def trunc2(x):
     return math.floor(x * 100) / 100
 
 # -------------------------
 # Funciones de escena/actualización
+# -------------------------
 def create_scene(h0):
+    """Crea figura con regla vertical y texto de fase dentro del gráfico."""
     fig, ax = plt.subplots(figsize=(4, 6))
     ax.set_xlim(-1.0, 0.6)
     ax.set_ylim(0, max(1.0, h0 * 1.2))
@@ -37,6 +39,7 @@ def create_scene(h0):
         ax.hlines(h, xruler, xruler + tick_len, color='black', linewidth=1, zorder=3)
         ax.text(xruler - 0.04, h, f"{int(h)} m", fontsize=8, va='center', ha='right', color='black')
 
+    # Tamaño visual del objeto
     radius = max(0.12, min(0.25, h0 * 0.03))
 
     # Objeto (pelota)
@@ -54,30 +57,55 @@ def create_scene(h0):
     y_text = ax.text(-0.9, max(1.0, h0 * 1.2) * 0.8, "", fontsize=11, color='green')
     phase_text = ax.text(0.0, max(1.0, h0 * 1.2) * 0.95, "", fontsize=11, ha='center', va='bottom', color='blue')
 
+    # Tiempo estimado de caída
+    t_end = np.sqrt(2 * h0 / g) if h0 > 0 else 0.0
+
+    # Cerrar la figura para evitar que se muestre automáticamente
     plt.close(fig)
-    return fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text
+
+    return fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text, t_end
 
 def update_scene(frame_idx, fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text, h0, show_formulas, frames=200):
+    """Actualiza la figura y construye HTML con fórmulas (valores truncados a 2 decimales sin redondeo)."""
+    # Convertir frame a tiempo
     t_end = np.sqrt(2 * h0 / g) if h0 > 0 else 0.0
     t = (frame_idx / (frames - 1)) * t_end if frames > 1 else 0.0
-    vi = 0.0
+
+    # Valores físicos
+    vi = 0.0  # Velocidad inicial asumida
+    # Posición vertical (y)
     y = max(h0 - 0.5 * g * t ** 2, 0.0)
     v = vi + g * t
+
+    # Calcular los términos de y = vi*t + 0.5*g*t^2 con precisión completa
     term1 = vi * t
     term2 = 0.5 * g * (t ** 2)
-    d = term1 + term2
+    d = term1 + term2  # Desplazamiento calculado con precisión
 
-    circle.center = (0.0, y)
+    # Mover círculo (asegurando movimiento vertical)
+    circle.center = (0.0, y)  # La coordenada x debe permanecer en 0.0 para caída vertical
+
+    # Actualizar flecha
     start = (0.0, y - radius - 0.05)
     max_visual = max(0.28, h0 * 0.35)
     arrow_len = min(max_visual, 0.18 + 0.35 * (v / (np.sqrt(2 * g * h0) + 1e-9))) if h0 > 0 else 0.18
     end = (0.0, y - radius - 0.05 - arrow_len)
-    arrow.set_positions(start, end)
+    try:
+        arrow.set_positions(start, end)
+    except Exception:
+        try:
+            arrow.remove()
+        except Exception:
+            pass
+        arrow = patches.FancyArrowPatch(start, end, arrowstyle='->', mutation_scale=20, color='orange', linewidth=3, zorder=6)
+        ax.add_patch(arrow)
 
-    # Textos
+    # Textos numéricos (truncados a 2 decimales sin redondeo)
     t_text.set_text(f"t = {trunc2(t)} s")
     v_text.set_text(f"v = {trunc2(v)} m/s")
     y_text.set_text(f"y = {trunc2(y)} m")
+
+    # Mensajes dinámicos
     if t < 1e-6:
         phase_text.set_text("El objeto está suspendido en el aire. Prepárate para soltarlo.")
         phase_text.set_color('blue')
@@ -88,8 +116,15 @@ def update_scene(frame_idx, fig, ax, circle, arrow, t_text, v_text, y_text, radi
         phase_text.set_text("¡La bola ha llegado al suelo! En ausencia de aire, cae con aceleración constante.")
         phase_text.set_color('red')
 
+    try:
+        fig.canvas.draw()
+    except Exception:
+        pass
+
+    # Fórmulas con sustitución (valores truncados a 2 decimales sin redondeo)
     info_html = ""
     if show_formulas:
+        # Calcular valores para mostrar (truncados)
         vi_s = trunc2(vi)
         g_s = trunc2(g)
         t_s = trunc2(t)
@@ -97,35 +132,127 @@ def update_scene(frame_idx, fig, ax, circle, arrow, t_text, v_text, y_text, radi
         term2_s = trunc2(term2)
         d_s = trunc2(d)
         v_s = trunc2(v)
+        # Mostrar paso a paso
         info_html = f"""
-        **Fórmulas paso a paso:**
-        - vf = vi + g t → {vi_s} + {g_s}·({t_s}) = **{v_s} m/s**
-        - y = vi·t + ½·g·t² → {vi_s}·{t_s} + 0.5·{g_s}·({t_s})² = {d_s} m
-        - t = (vf - vi)/g → ({v_s} - {vi_s})/{g_s} = {trunc2((v-vi)/g)} s
+        <div style="font-family: sans-serif; font-size:14px; line-height:1.4">
+          <b>Fórmulas (sustitución numérica — pasos):</b><br>
+          <span style="color:blue">vf = vi + g t</span> → 
+             <span style="color:green">{vi_s} + {g_s}·({t_s}) = <b>{v_s} m/s</b></span><br>
+          <span style="color:orange">y = vi·t + ½·g·t²</span> → <br>
+             &nbsp;&nbsp;&nbsp;Sustituyendo: {vi_s}·{t_s} + 0.5·{g_s}·({t_s})²  <br>
+             &nbsp;&nbsp;&nbsp;Términos: {term1_s} + {term2_s}  <br>
+             &nbsp;&nbsp;&nbsp;Suma: <b>{d_s} m</b><br>
+          <span style="color:purple">t = (vf - vi)/g</span> → 
+             <span style="color:purple">({v_s} - {vi_s})/{g_s} = <b>{trunc2((v - vi) / g)} s</b></span>
+        </div>
         """
     else:
-        info_html = "Fórmulas ocultas."
+        info_html = "<div style='color:gray'>Fórmulas ocultas.</div>"
 
     return info_html
 
 # -------------------------
-# Streamlit interfaz
-st.set_page_config(page_title="Simulación Caída Libre", layout="centered")
+# Widgets e interfaz
+# -------------------------
+import ipywidgets as widgets
+from IPython.display import display, clear_output, HTML
 
-st.markdown("<h1 style='color:darkred;'>🌟 Simulación Interactiva de Caída Libre sin Resistencia del Aire 🌟</h1>", unsafe_allow_html=True)
-st.markdown("""
-En esta simulación observarás cómo una bola cae bajo la acción de la gravedad, **sin resistencia del aire**.  
-Podrás variar la altura inicial y la masa de la bola, y ver cómo cambian la altura, la velocidad y el tiempo durante la caída.  
-""", unsafe_allow_html=True)
+altura_btns = widgets.ToggleButtons(
+    options=[('1 m', 1.0), ('2 m', 2.0), ('5 m', 5.0), ('10 m', 10.0)],
+    description='Altura:', value=5.0
+)
+masa_btns = widgets.ToggleButtons(
+    options=[('0.5 kg', 0.5), ('1 kg', 1.0), ('2 kg', 2.0), ('5 kg', 5.0)],
+    description='Masa:', value=1.0
+)
+show_formulas_cb = widgets.Checkbox(value=True, description='Mostrar fórmulas')
+btn_soltar = widgets.Button(description='💧 Soltar objeto', button_style='info')
+btn_reiniciar = widgets.Button(description='↺ Reiniciar', button_style='warning', disabled=True)
 
-altura = st.selectbox("Altura inicial (m):", [1.0, 2.0, 5.0, 10.0], index=2)
-masa = st.selectbox("Masa (kg, no afecta caída en vacío):", [0.5, 1.0, 2.0, 5.0], index=1)
-show_formulas = st.checkbox("Mostrar fórmulas", value=True)
+frames = 200
+slider = widgets.IntSlider(value=0, min=0, max=frames-1, step=1, description='Frame:', layout=widgets.Layout(width='60%'))
+play = widgets.Play(value=0, min=0, max=frames-1, interval=30, description="Play", disabled=False)
+widgets.jslink((play, 'value'), (slider, 'value'))
 
-if st.button("💧 Soltar objeto"):
-    frames = 200
-    fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text = create_scene(altura)
-    for i in range(frames):
-        info = update_scene(i, fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text, altura, show_formulas, frames=frames)
-        st.pyplot(fig)
-        st.markdown(info)
+anim_out = widgets.Output()
+
+# Título + introducción
+title_html = HTML("<h1 style='color:darkred;'>🌟 Simulación Interactiva de Caída Libre sin Resistencia del Aire 🌟</h1>")
+intro_html = HTML("""
+<p style='font-size:16px; text-align:center; margin-bottom:15px;'>
+En esta simulación observarás cómo una bola cae bajo la acción de la gravedad, <b style='color:red;'>sin resistencia del aire</b>. 
+Podrás variar la altura inicial y la masa de la bola, y ver cómo cambian la altura, la velocidad y el tiempo durante la caída. 
+La simulación muestra que, sin aire, la masa no afecta el tiempo de caída, y todos los objetos caen con la misma aceleración de 9.8 m/s².
+</p>
+""")
+seleccion_html = HTML("""
+<p style='font-size:15px; color:darkblue; margin-top:15px;'>
+Elige altura y masa (la masa no influye en vacío). Marca <b>Mostrar fórmulas</b> para ver los cálculos. Pulsa <b>Soltar objeto</b> y luego ▶ Play.
+</p>
+""")
+importante_html = HTML("""
+<h3 style='color:darkblue;'>📌 Conceptos clave de la caída libre</h3>
+<p style='font-size:15px;'>
+✔️ La <b>aceleración gravitacional</b> de 9.8 m/s², se considera positiva al descender el objeto y negativa al ascender el objeto.<br>
+✔️ La <b>velocidad final</b> aumenta con el tiempo (<b>vf = vi + g·t</b>).<br>
+✔️ La <b>altura</b> o posición del objeto respecto al punto de referencia cambia según (<b>y = vi t + ½ g t²</b>).<br>
+✔️ El <b>tiempo</b> se puede obtener de la velocidad final (<b>t = (vf - vi)/g</b>).<br>
+✔️ Otras Fórmulas y=( vi – vf  /2) t  ;    2gh= vf² – vi².
+</p>
+""")
+
+# Mostrar interfaz inicial
+display(
+    title_html,
+    intro_html,
+    seleccion_html,
+    widgets.HBox([altura_btns, masa_btns, show_formulas_cb]),
+    widgets.HBox([btn_soltar, btn_reiniciar]),
+    HTML("<hr>"),
+    importante_html,
+    widgets.HBox([play, slider])
+)
+
+# -------------------------
+# Lógica de interacción
+# -------------------------
+current_scene = {}
+
+def on_soltar_clicked(b):
+    h0 = float(altura_btns.value)
+    show_form = bool(show_formulas_cb.value)
+
+    fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text, t_end = create_scene(h0)
+    current_scene.update(dict(fig=fig, ax=ax, circle=circle, arrow=arrow, t_text=t_text, v_text=v_text, y_text=y_text, radius=radius, phase_text=phase_text, h0=h0, show_form=show_form))
+
+    btn_reiniciar.disabled = False
+    display(anim_out)
+
+    def update(frame_idx):
+        with anim_out:
+            clear_output(wait=True)
+            info_html = update_scene(frame_idx, fig, ax, circle, arrow, t_text, v_text, y_text, radius, phase_text, h0, show_form, frames=frames)
+            display(fig)
+            display(HTML(info_html))
+
+    # Asegurar que el slider actualice la escena
+    def handler(change):
+        update(change['new'])
+    slider.observe(handler, names='value')
+
+    update(0)
+
+btn_soltar.on_click(on_soltar_clicked)
+
+def on_reiniciar_clicked(b):
+    with anim_out:
+        clear_output(wait=True)
+    play.value = 0
+    slider.value = 0
+    btn_reiniciar.disabled = True
+    if current_scene.get('fig'):
+        plt.close(current_scene['fig'])
+    current_scene.clear()
+    display(HTML("<p style='color:darkblue; background-color:lightyellow; padding:10px;'><b>¡Simulación reiniciada! Selecciona una nueva altura y pulsa 'Soltar objeto'.</b></p>"))
+
+btn_reiniciar.on_click(on_reiniciar_clicked)
